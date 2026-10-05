@@ -12,6 +12,7 @@ from typing import Optional
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from config import (
@@ -46,6 +47,22 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CORS
+# In production, browser requests reach this backend same-origin through the
+# Vercel /api/* rewrite; in local development the Vite dev server proxies
+# /api/* to localhost:8000. CORS therefore is not required for the normal
+# flows, but permissive origins keep the API directly reachable (e.g. when
+# running uvicorn standalone on :8000 or from preview deployments) without
+# breaking either environment.
+# ──────────────────────────────────────────────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -23,7 +23,8 @@
       "devCommand": "uvicorn app:app --host 0.0.0.0 --port 8000",
       "functions": {
         "app.py": {
-          "maxDuration": 300
+          "maxDuration": 300,
+          "memory": 2048
         }
       }
     }

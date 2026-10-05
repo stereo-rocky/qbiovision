@@ -14,6 +14,7 @@ import base64
 import io
 import logging
 import math
+import tempfile
 from pathlib import Path
 from typing import Union
 
@@ -219,6 +220,28 @@ def load_image(source: Union[str, Path, bytes, np.ndarray]) -> np.ndarray:
 # ResNet18 Feature Extraction
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _ensure_writable_torch_hub_cache() -> None:
+    """Ensure torch.hub's weight cache points at a writable directory.
+
+    On read-only filesystems (e.g. Vercel serverless, where only /tmp is
+    writable) the default ``~/.cache/torch/hub`` cannot be created and
+    torchvision fails with a PermissionError while downloading the
+    ResNet18 weights. Redirect the cache to the temp directory in that
+    case; local development is unaffected.
+    """
+    hub_dir = Path(torch.hub.get_dir())
+    try:
+        hub_dir.mkdir(parents=True, exist_ok=True)
+        probe = hub_dir / ".write_probe"
+        probe.touch()
+        probe.unlink()
+    except OSError:
+        fallback = Path(tempfile.gettempdir()) / "torch" / "hub"
+        fallback.mkdir(parents=True, exist_ok=True)
+        torch.hub.set_dir(str(fallback))
+        logger.info("torch.hub cache redirected to %s (default not writable)", fallback)
+
+
 def _get_resnet18(device: str = "cpu") -> torch.nn.Module:
     """Return a cached ResNet18 model with the final FC layer removed.
 
@@ -241,6 +264,7 @@ def _get_resnet18(device: str = "cpu") -> torch.nn.Module:
         return _resnet18_model
 
     logger.info("Loading pretrained ResNet18 for feature extraction …")
+    _ensure_writable_torch_hub_cache()
     weights = tv_models.ResNet18_Weights.IMAGENET1K_V1
     base = tv_models.resnet18(weights=weights)
     # Remove the classification head; keep everything up to and including avgpool
