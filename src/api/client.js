@@ -1,6 +1,6 @@
 // ================================================================
 // src/api/client.js — Axios API client for Q-BioVision backend
-// All requests proxy to http://localhost:8000 via Vite proxy config
+// Same-origin /api requests are proxied locally by Vite and routed by Vercel in production.
 // ================================================================
 import axios from 'axios'
 
@@ -8,7 +8,7 @@ import axios from 'axios'
 // Base Axios instance
 // ---------------------------------------------------------------------------
 const apiClient = axios.create({
-  baseURL: '/',          // Vite proxies /api/* -> http://localhost:8000
+  baseURL: '/',          // Keep browser requests same-origin in every environment
   timeout: 60000,        // 60 second timeout for long-running quantum jobs
   headers: {
     'Accept': 'application/json',
