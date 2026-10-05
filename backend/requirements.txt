@@ -1,21 +1,38 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Q-BioVision — DEPLOYMENT (serverless) requirements
+#
+# This is the dependency set installed into the Vercel Python Function.
+# Vercel enforces a 225 MB unzipped function bundle; this set installs to
+# ~122 MB. Every package below is imported by a production API route.
+#
+# The heavy ML / quantum / imaging stack (torch, torchvision, qiskit,
+# qiskit-aer, qiskit-machine-learning, mitiq, scikit-learn, scipy,
+# opencv-python-headless, matplotlib, weasyprint, pydicom) lives in
+# requirements-full.txt and is installed for local development only — each of
+# those packages on its own exceeds the serverless budget (scipy ~214 MB,
+# qiskit ~261 MB, scikit-learn ~273 MB, opencv ~225 MB, matplotlib ~169 MB,
+# torch + CUDA wheels ~5.9 GB).
+#
+# The backend degrades gracefully: quantum_backend.py / ml_compat.py /
+# imaging_compat.py prefer the real libraries when present and otherwise use
+# the pure-NumPy implementations in qlite.py, so every endpoint keeps working.
+#
+#   Local full install:  pip install -r requirements-full.txt
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Web framework (app.py) ───────────────────────────────────────────────────
 fastapi>=0.110.0
-uvicorn[standard]>=0.29.0
-python-multipart>=0.0.9
-qiskit>=1.1.0
-qiskit-aer>=0.14.0
-qiskit-machine-learning>=0.7.0
-mitiq>=0.35.0
-numpy>=1.26.0
-scikit-learn>=1.4.0
-torch>=2.2.0
-torchvision>=0.17.0
-opencv-python-headless>=4.9.0
-Pillow>=10.3.0
-pydicom>=2.4.0
-jinja2>=3.1.0
-weasyprint>=60.0
-matplotlib>=3.8.0
-scipy>=1.12.0
-pydantic>=2.6.0
-python-dotenv>=1.0.0
-reportlab>=4.1.0
+uvicorn>=0.29.0            # local `python app.py`; no [standard] extras needed
+python-multipart>=0.0.9    # multipart uploads on /api/preprocess, /api/analyze
+pydantic>=2.6.0            # request/response models in app.py
+python-dotenv>=1.0.0       # optional .env loading for DEMO_MODE / RANDOM_SEED
+
+# ── Numerics (every module) ──────────────────────────────────────────────────
+numpy>=1.26.0              # statevector simulation, encoding, metrics
+
+# ── Imaging (preprocessing.py, imaging_compat.py, qlite.py diagrams) ─────────
+Pillow>=10.3.0             # image decode/resize, heatmaps, circuit diagrams
+
+# ── Reporting (report_generator.py) ──────────────────────────────────────────
+jinja2>=3.1.0              # Markdown report templating
+reportlab>=4.1.0           # PDF generation for /api/report/generate

@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Q-BioVision — FULL local / research requirements
+#
+# Installs the serverless baseline plus the real ML, quantum and imaging
+# stack. Use this for local development, notebooks, CI that exercises the
+# genuine Qiskit kernels, or any self-hosted (non-serverless) deployment:
+#
+#     pip install -r requirements-full.txt
+#
+# DO NOT point Vercel at this file: the resulting bundle is ~5.9 GB, far above
+# the 225 MB serverless function limit. torch alone pulls nvidia-cudnn,
+# nvidia-cublas, nvidia-nccl, nvidia-cusparse(-lt) and triton.
+#
+# When these packages are present the backend automatically prefers them:
+#   preprocessing.py   -> ResNet18 (torchvision) feature extractor
+#   quantum_backend.py -> Qiskit 1.x circuits + Aer simulator + QML kernels
+#   noise_mitigation.py-> Aer noise models + mitiq ZNE
+#   benchmarking.py    -> PyTorch classical CNN baseline
+#   ml_compat.py       -> scikit-learn metrics / SVC
+#   imaging_compat.py  -> OpenCV + Matplotlib
+#   report_generator.py-> WeasyPrint PDF rendering
+# ─────────────────────────────────────────────────────────────────────────────
+
+-r requirements.txt
+
+# ── Quantum stack ────────────────────────────────────────────────────────────
+# Pinned to Qiskit 1.x: this project targets the Qiskit 1.x API surface
+# (qiskit.qasm3, EstimatorV2/SamplerV2, ZZFeatureMap). Qiskit 2.x segfaults
+# when ParameterVector is constructed from a worker thread with this
+# dependency set, which takes down the ASGI server.
+qiskit>=1.1,<2
+qiskit-aer>=0.14,<0.16
+qiskit-machine-learning>=0.7,<0.9
+mitiq>=0.35.0
+pylatexenc>=2.10          # required by Qiskit's matplotlib circuit drawer
+
+# ── Classical ML ─────────────────────────────────────────────────────────────
+scikit-learn>=1.4.0
+scipy>=1.12.0
+
+# ── Deep learning (CPU wheels are sufficient; see note below) ───────────────
+# For a CPU-only install that avoids the NVIDIA/CUDA wheels entirely, run:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+torch>=2.2.0
+torchvision>=0.17.0
+
+# ── Imaging & medical formats ────────────────────────────────────────────────
+opencv-python-headless>=4.9.0
+pydicom>=2.4.0
+matplotlib>=3.8.0
+
+# ── Rich PDF rendering ───────────────────────────────────────────────────────
+markdown>=3.5
+weasyprint>=60.0

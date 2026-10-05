@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from sklearn.model_selection import train_test_split
+from ml_compat import train_test_split
 
 from config import (
     RANDOM_SEED,

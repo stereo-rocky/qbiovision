@@ -19,60 +19,41 @@ import time
 from typing import Optional
 
 import numpy as np
-from sklearn.metrics import accuracy_score
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.svm import SVC
 
-from qiskit import QuantumCircuit
-from qiskit.circuit import ParameterVector
-from qiskit.circuit.library import ZZFeatureMap, RealAmplitudes, TwoLocal
+# scikit-learn is optional: ml_compat re-exports the real implementations when
+# available and NumPy equivalents otherwise (serverless profile).
+from ml_compat import MinMaxScaler, SVC, accuracy_score, rbf_kernel
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+# quantum_backend resolves to real Qiskit + Aer when installed, and to the
+# pure-NumPy `qlite` backend on size-constrained deployments.
+from quantum_backend import (
+    AerSimulator,
+    FidelityQuantumKernel,
+    ParameterVector,
+    QuantumCircuit,
+    RealAmplitudes,
+    TwoLocal,
+    ZZFeatureMap,
+    circuit_png_b64,
+    transpile,
+    AER_AVAILABLE,
+    QML_AVAILABLE,
+    SIMULATOR_AVAILABLE,
+)
 
 from config import RANDOM_SEED
 
 logger = logging.getLogger(__name__)
 
-# Qiskit Aer imports with graceful fallback
-try:
-    from qiskit_aer import AerSimulator
-    from qiskit_aer.primitives import (
-        Estimator as AerEstimator,
-        Sampler   as AerSampler,
-    )
-    _AER_AVAILABLE = True
-except ImportError:
-    _AER_AVAILABLE = False
-    logger.warning("qiskit-aer not found; quantum models will use mock values.")
-
-try:
-    from qiskit_machine_learning.kernels import FidelityQuantumKernel
-    _QML_AVAILABLE = True
-except ImportError:
-    _QML_AVAILABLE = False
-    logger.warning("qiskit-machine-learning not found; QSVC will fall back to RBF-SVM.")
+# A statevector simulator is always reachable (Aer locally, qlite otherwise).
+_AER_AVAILABLE = SIMULATOR_AVAILABLE
+_QML_AVAILABLE = QML_AVAILABLE and AER_AVAILABLE
 
 
 def _circuit_to_svg(circuit: QuantumCircuit) -> str:
-    """Render a Qiskit circuit as a base64-encoded PNG (matplotlib backend)."""
+    """Render a circuit as a base64-encoded PNG (matplotlib or Pillow)."""
     try:
-        fig = circuit.draw(
-            output='mpl',
-            style={
-                'backgroundcolor': '#0f172a',
-                'textcolor':        'white',
-                'gatefacecolor':    '#1e40af',
-                'gatetextcolor':    'white',
-                'subfontsize':       10,
-            },
-        )
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', bbox_inches='tight', dpi=100, facecolor='#0f172a')
-        plt.close(fig)
-        buf.seek(0)
-        return base64.b64encode(buf.read()).decode('utf-8')
+        return circuit_png_b64(circuit)
     except Exception as exc:
         logger.warning('Circuit draw failed: %s', exc)
         return ''
@@ -185,7 +166,6 @@ class QuanvolutionalNN:
                 param_dict[p] = float(self.params[i])
             bound_circuit = self._circuit.assign_parameters(param_dict)
             sim = AerSimulator(method='statevector')
-            from qiskit import transpile
             sv_circ = bound_circuit.copy()
             sv_circ.save_statevector()
             t_circ = transpile(sv_circ, sim)
@@ -199,7 +179,11 @@ class QuanvolutionalNN:
                     bit = (i >> qubit_idx) & 1
                     exp_val += p * (1 - 2 * bit)
                 expectations[qubit_idx] = exp_val
-        except Exception as exc:
+        except BaseException as exc:
+            # Qiskit's Rust transpiler can raise pyo3 PanicException, which
+            # derives from BaseException; degrade instead of killing the worker.
+            if isinstance(exc, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                raise
             logger.warning('Kernel execution failed: %s -- using random fallback.', exc)
             rng = np.random.default_rng(RANDOM_SEED)
             expectations = rng.uniform(-1, 1, self.n_qubits).astype(np.float32)
@@ -308,7 +292,6 @@ class QuantumSVClassifier:
                 return qkernel.evaluate(x_vec=X1, y_vec=X2)
             except Exception as exc:
                 logger.warning('Quantum kernel failed: %s -- RBF fallback.', exc)
-        from sklearn.metrics.pairwise import rbf_kernel
         gamma = 1.0 / (self.n_qubits * X1.var() + 1e-8)
         return rbf_kernel(X1, X2, gamma=gamma).astype(np.float32)
 
@@ -429,14 +412,16 @@ class VariationalQuantumClassifier:
                 param_dict[p] = float(params[i])
             bound = self._ansatz.assign_parameters(param_dict)
             sim   = AerSimulator(method='statevector')
-            from qiskit import transpile
             sv_circ = bound.copy()
             sv_circ.save_statevector()
             t_circ = transpile(sv_circ, sim)
             result = sim.run(t_circ).result()
             sv     = np.array(result.get_statevector())
             return _expectation_from_statevector(sv, self.n_qubits)
-        except Exception as exc:
+        except BaseException as exc:
+            # See note in QuanvolutionalNN._apply_kernel_to_patch.
+            if isinstance(exc, (KeyboardInterrupt, SystemExit, GeneratorExit)):
+                raise
             logger.warning('VQC forward pass error: %s', exc)
             rng = np.random.default_rng(RANDOM_SEED)
             return float(rng.uniform(-1, 1))

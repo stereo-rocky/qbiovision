@@ -10,7 +10,6 @@ import time
 from typing import Optional
 
 import numpy as np
-import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -125,11 +124,14 @@ def _clamp_qubits(n: int) -> int:
 @app.get("/api/health", tags=["Health"])
 async def health_check():
     """API health check. Returns version and runtime mode."""
+    from quantum_backend import backend_info
+
     return {
         "status": "ok",
         "service": "Q-BioVision API",
         "version": API_VERSION,
         "demo_mode": DEMO_MODE,
+        "runtime": backend_info(),
         "docs": "/api/docs",
     }
 
@@ -371,7 +373,7 @@ async def train_model(req: ModelTrainRequest):
         train_result = model.fit(X_train, y_train)
         pred_result = model.predict(X_test)
 
-        from sklearn.metrics import accuracy_score
+        from ml_compat import accuracy_score
         test_acc = float(accuracy_score(y_test, pred_result["predictions"]))
 
         return {
@@ -426,7 +428,17 @@ async def predict(
         pred_result = model.predict(X_input)
 
         prediction = int(pred_result["predictions"][0])
-        probs = pred_result["probabilities"][0] if pred_result.get("probabilities") else [0.5, 0.5]
+        raw_probs = pred_result.get("probabilities") or []
+        first = raw_probs[0] if raw_probs else None
+        if first is None:
+            probs = [0.5, 0.5]
+        elif isinstance(first, (list, tuple)):
+            # Model returned a full per-class distribution.
+            probs = [float(p) for p in first]
+        else:
+            # Model returned P(class 1) only — expand to a 2-class distribution.
+            p1 = float(np.clip(first, 0.0, 1.0))
+            probs = [1.0 - p1, p1]
         confidence = float(max(probs))
 
         return {
@@ -453,7 +465,7 @@ async def simulate_noise(req: NoiseSimulateRequest):
     try:
         from quantum_models import build_circuit_for_config
         from noise_mitigation import compare_all_methods
-        from qiskit import QuantumCircuit
+        from quantum_backend import QuantumCircuit, QISKIT_AVAILABLE
 
         # Build the circuit for this architecture
         circuit_info = build_circuit_for_config(
@@ -465,11 +477,17 @@ async def simulate_noise(req: NoiseSimulateRequest):
 
         # Parse QASM to get QuantumCircuit object
         try:
+            if not QISKIT_AVAILABLE:
+                raise NotImplementedError("QASM parsing requires the full Qiskit install")
             from qiskit.qasm2 import loads as qasm2_loads
             qc = qasm2_loads(circuit_info["qasm"])
         except Exception:
-            # Fallback: simple demo circuit
-            qc = QuantumCircuit(req.n_qubits, req.n_qubits)
+            # Fallback: simple demo circuit.
+            # No explicit classical register here — measure_all() adds its own
+            # 'meas' register. Declaring a second, never-written register makes
+            # the counts bitstrings carry trailing zero bits, which would skew
+            # the <Z_0> expectation computed in noise_mitigation.
+            qc = QuantumCircuit(req.n_qubits)
             qc.h(range(req.n_qubits))
             for i in range(req.n_qubits - 1):
                 qc.cx(i, i + 1)
@@ -549,6 +567,8 @@ async def generate_report(req: ReportRequest):
 # Entry Point
 # ──────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    import uvicorn
+
     uvicorn.run(
         "app:app",
         host="0.0.0.0",

@@ -4,41 +4,64 @@ Trains a classical CNN baseline, computes AUC-ROC, learning curves,
 and parameter efficiency metrics for all three model types.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import time
 from pathlib import Path
 
 import numpy as np
-from sklearn.metrics import (
+
+# scikit-learn is optional: ml_compat re-exports the real implementations when
+# available and NumPy equivalents otherwise (serverless profile).
+from ml_compat import (
+    TORCH_AVAILABLE,
     accuracy_score,
-    roc_auc_score,
+    confusion_matrix,
+    f1_score,
+    label_binarize,
     precision_score,
     recall_score,
-    f1_score,
-    confusion_matrix,
+    roc_auc_score,
     roc_curve,
+    train_numpy_baseline,
+    train_test_split,
 )
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import label_binarize
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
+# PyTorch powers the classical CNN baseline locally. It cannot be bundled into
+# a serverless function (torch + CUDA wheels are several GB), so a NumPy MLP
+# baseline of comparable capacity is used when torch is unavailable.
+if TORCH_AVAILABLE:  # pragma: no cover - depends on the install profile
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+    from torch.utils.data import DataLoader, TensorDataset
+else:
+    torch = None  # type: ignore
+    nn = None     # type: ignore
 
 from config import RANDOM_SEED, CACHE_DIR, LEARNING_CURVE_SIZES, DEFAULT_EPOCHS
 
 logger = logging.getLogger(__name__)
-torch.manual_seed(RANDOM_SEED)
+if TORCH_AVAILABLE:
+    torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
+
+#: Name of the classical baseline implementation active in this deployment.
+CLASSICAL_BASELINE = "torch-cnn" if TORCH_AVAILABLE else "numpy-mlp"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Classical CNN Baseline
 # ──────────────────────────────────────────────────────────────────────────────
 
-class ClassicalCNNBaseline(nn.Module):
+#: ``nn.Module`` locally; a plain object when torch is not installed so the
+#: module still imports (the class is only instantiated on the torch path).
+_BaseModule = nn.Module if TORCH_AVAILABLE else object
+
+
+class ClassicalCNNBaseline(_BaseModule):
     """
     Lightweight 3-layer CNN for binary classification on quantum feature maps.
     Designed for fair comparison: operates on the same N-qubit feature vectors
@@ -112,6 +135,18 @@ def train_classical_baseline(
     n_classes = len(np.unique(y_train))
     start_time = time.time()
 
+    if not TORCH_AVAILABLE:
+        # Serverless profile: equivalent dense baseline implemented in NumPy.
+        result = train_numpy_baseline(
+            X_train, y_train, n_epochs=n_epochs, batch_size=batch_size,
+            lr=max(lr, 1e-2), seed=RANDOM_SEED,
+        )
+        train_classical_baseline._last_model = result.pop("model")
+        train_classical_baseline._last_n_features = n_features
+        train_classical_baseline._last_n_classes = n_classes
+        result["accuracy"] = round(float(result["accuracy"]), 4)
+        return result
+
     model = ClassicalCNNBaseline(n_features=n_features, n_classes=n_classes)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -166,6 +201,13 @@ def predict_classical_baseline(X_test: np.ndarray) -> dict:
     model = getattr(train_classical_baseline, "_last_model", None)
     if model is None:
         raise RuntimeError("No trained classical model found. Call train_classical_baseline first.")
+
+    if not TORCH_AVAILABLE:
+        probs = model.predict_proba(np.asarray(X_test, dtype=float))
+        return {
+            "predictions": probs.argmax(axis=1).tolist(),
+            "probabilities": probs.tolist(),
+        }
 
     model.eval()
     with torch.no_grad():

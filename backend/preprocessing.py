@@ -18,18 +18,35 @@ import tempfile
 from pathlib import Path
 from typing import Union
 
-import cv2           # type: ignore
 import numpy as np
 from PIL import Image  # type: ignore
-from sklearn.decomposition import PCA  # type: ignore
 
-import torch
-import torchvision.models as tv_models        # type: ignore
-import torchvision.transforms as transforms    # type: ignore
+import imaging_compat
+from imaging_compat import (
+    annotate_patch_grid,
+    classical_descriptor,
+    decode_image_bytes,
+    ensure_rgb,
+    read_image_file,
+    render_feature_heatmap,
+    resize_rgb,
+)
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+# PyTorch / torchvision are optional: they are required for the ResNet18
+# extractor but cannot be bundled into a serverless function (see
+# requirements-full.txt). When absent we fall back to a deterministic
+# hand-crafted descriptor of the same dimensionality.
+try:  # pragma: no cover - depends on the install profile
+    import torch
+    import torchvision.models as tv_models        # type: ignore
+    import torchvision.transforms as transforms    # type: ignore
+
+    TORCH_AVAILABLE = True
+except ImportError:
+    torch = None          # type: ignore
+    tv_models = None      # type: ignore
+    transforms = None     # type: ignore
+    TORCH_AVAILABLE = False
 
 from config import RANDOM_SEED, IMAGE_SIZE, FEATURE_DIM
 
@@ -38,17 +55,28 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────────────────────
 # Module-level model cache (avoid reloading on every request)
 # ──────────────────────────────────────────────────────────────────────────────
-_resnet18_model: Union[torch.nn.Module, None] = None
+_resnet18_model = None
 _resnet18_device: str = "cpu"
+_preprocess_transform = None
 
 _IMAGENET_MEAN = [0.485, 0.456, 0.406]
 _IMAGENET_STD  = [0.229, 0.224, 0.225]
 
-_preprocess_transform = transforms.Compose([
-    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=_IMAGENET_MEAN, std=_IMAGENET_STD),
-])
+
+def _get_transform():
+    """Build (and cache) the torchvision preprocessing transform."""
+    global _preprocess_transform
+    if _preprocess_transform is None:
+        _preprocess_transform = transforms.Compose([
+            transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_IMAGENET_MEAN, std=_IMAGENET_STD),
+        ])
+    return _preprocess_transform
+
+
+#: Name of the feature extractor active in this deployment.
+FEATURE_EXTRACTOR = "resnet18" if TORCH_AVAILABLE else "classical-descriptor"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -97,23 +125,7 @@ def create_feature_map_visualization(features: np.ndarray, n_qubits: int) -> str
     str
         Base64-encoded PNG of the heatmap.
     """
-    side = math.ceil(math.sqrt(n_qubits))
-    padded = np.zeros(side * side, dtype=np.float32)
-    padded[:n_qubits] = features[:n_qubits]
-    grid = padded.reshape(side, side)
-
-    fig, ax = plt.subplots(figsize=(3, 3), dpi=80)
-    im = ax.imshow(grid, cmap="viridis", vmin=0, vmax=2 * math.pi, aspect="auto")
-    plt.colorbar(im, ax=ax, label="Angle (rad)")
-    ax.set_title(f"Quantum Feature Map ({n_qubits} qubits)", fontsize=8)
-    ax.axis("off")
-    fig.tight_layout()
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode("utf-8")
+    return render_feature_heatmap(features, n_qubits)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -147,26 +159,11 @@ def load_image(source: Union[str, Path, bytes, np.ndarray]) -> np.ndarray:
 
     # ── numpy array path ─────────────────────────────────────────────────────
     if isinstance(source, np.ndarray):
-        arr = source.astype(np.uint8)
-        if arr.ndim == 2:
-            arr = cv2.cvtColor(arr, cv2.COLOR_GRAY2RGB)
-        elif arr.shape[2] == 4:
-            arr = cv2.cvtColor(arr, cv2.COLOR_BGRA2RGB)
-        img_rgb = arr
+        img_rgb = ensure_rgb(source)
 
     # ── bytes path ────────────────────────────────────────────────────────────
     elif isinstance(source, (bytes, bytearray)):
-        nparr = np.frombuffer(source, dtype=np.uint8)
-        img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if img_bgr is None:
-            # Try PIL fallback
-            try:
-                pil_img = Image.open(io.BytesIO(source)).convert("RGB")
-                img_rgb = np.array(pil_img, dtype=np.uint8)
-            except Exception as exc:
-                raise ValueError(f"Cannot decode image bytes: {exc}") from exc
-        else:
-            img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        img_rgb = decode_image_bytes(source)
 
     # ── file path ─────────────────────────────────────────────────────────────
     else:
@@ -186,32 +183,19 @@ def load_image(source: Union[str, Path, bytes, np.ndarray]) -> np.ndarray:
                 mn, mx = pixel_array.min(), pixel_array.max()
                 if mx > mn:
                     pixel_array = (pixel_array - mn) / (mx - mn) * 255.0
-                arr8 = pixel_array.astype(np.uint8)
-                if arr8.ndim == 2:
-                    arr8 = cv2.cvtColor(arr8, cv2.COLOR_GRAY2RGB)
-                img_rgb = arr8
+                img_rgb = ensure_rgb(pixel_array.astype(np.uint8))
             except ImportError:
-                logger.warning("pydicom not installed; falling back to cv2 for DCM.")
-                img_bgr = cv2.imread(str(fpath))
-                if img_bgr is None:
-                    raise ValueError(f"Cannot read DICOM file: {fpath}")
-                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+                logger.warning("pydicom not installed; falling back to a generic decoder.")
+                img_rgb = read_image_file(fpath)
             except Exception as exc:
                 raise ValueError(f"DICOM read error: {exc}") from exc
         else:
-            # Standard image formats via PIL (more robust than cv2 on Windows)
-            try:
-                pil_img = Image.open(str(fpath)).convert("RGB")
-                img_rgb = np.array(pil_img, dtype=np.uint8)
-            except Exception:
-                img_bgr = cv2.imread(str(fpath))
-                if img_bgr is None:
-                    raise ValueError(f"Cannot read image file: {fpath}")
-                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            # Standard image formats (Pillow first, OpenCV as a backstop)
+            img_rgb = read_image_file(fpath)
 
     # ── resize to canonical size ──────────────────────────────────────────────
     if img_rgb.shape[:2] != (IMAGE_SIZE, IMAGE_SIZE):
-        img_rgb = cv2.resize(img_rgb, (IMAGE_SIZE, IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+        img_rgb = resize_rgb(img_rgb, (IMAGE_SIZE, IMAGE_SIZE))
 
     return img_rgb.astype(np.uint8)
 
@@ -242,7 +226,7 @@ def _ensure_writable_torch_hub_cache() -> None:
         logger.info("torch.hub cache redirected to %s (default not writable)", fallback)
 
 
-def _get_resnet18(device: str = "cpu") -> torch.nn.Module:
+def _get_resnet18(device: str = "cpu"):
     """Return a cached ResNet18 model with the final FC layer removed.
 
     The model is loaded once per process and stored in the module-level
@@ -259,6 +243,12 @@ def _get_resnet18(device: str = "cpu") -> torch.nn.Module:
         Truncated ResNet18 ready for inference (eval mode, no grad).
     """
     global _resnet18_model, _resnet18_device
+
+    if not TORCH_AVAILABLE:
+        raise RuntimeError(
+            "PyTorch/torchvision are not installed in this deployment "
+            "(see requirements-full.txt for the full ML profile)."
+        )
 
     if _resnet18_model is not None and _resnet18_device == device:
         return _resnet18_model
@@ -299,7 +289,7 @@ def extract_resnet18_features(image_rgb: np.ndarray, device: str = "cpu") -> np.
     model = _get_resnet18(device)
 
     pil_img = Image.fromarray(image_rgb.astype(np.uint8), mode="RGB")
-    tensor  = _preprocess_transform(pil_img).unsqueeze(0).to(device)  # (1, 3, 224, 224)
+    tensor  = _get_transform()(pil_img).unsqueeze(0).to(device)  # (1, 3, 224, 224)
 
     with torch.no_grad():
         feat = model(tensor)          # (1, 512, 1, 1) from avgpool
@@ -387,12 +377,21 @@ def encode_image_to_qubits(image_rgb: np.ndarray, n_qubits: int) -> dict:
         ``feature_map_b64``  : base64 PNG of the feature heatmap
         ``original_b64``     : base64 PNG of the (resized) input image
     """
-    try:
-        features = extract_resnet18_features(image_rgb)
-    except Exception as exc:
-        logger.warning("ResNet18 extraction failed (%s); using random features.", exc)
-        rng = np.random.default_rng(RANDOM_SEED)
-        features = rng.random(FEATURE_DIM).astype(np.float32)
+    extractor = FEATURE_EXTRACTOR
+    if TORCH_AVAILABLE:
+        try:
+            features = extract_resnet18_features(image_rgb)
+        except Exception as exc:
+            logger.warning(
+                "ResNet18 extraction failed (%s); using the classical descriptor.", exc
+            )
+            features = classical_descriptor(image_rgb, dim=FEATURE_DIM)
+            extractor = "classical-descriptor"
+    else:
+        # Serverless profile: torch/torchvision are not bundled. The
+        # deterministic hand-crafted descriptor keeps the encoding pipeline
+        # image-dependent and reproducible without the 5 GB CUDA stack.
+        features = classical_descriptor(image_rgb, dim=FEATURE_DIM)
 
     quantum_angles = compress_to_n_qubits(features, n_qubits)
 
@@ -403,6 +402,7 @@ def encode_image_to_qubits(image_rgb: np.ndarray, n_qubits: int) -> dict:
         "quantum_features": quantum_angles.tolist(),
         "feature_map_b64":  feature_map_b64,
         "original_b64":     original_b64,
+        "feature_extractor": extractor,
     }
 
 
@@ -436,7 +436,7 @@ def create_patch_grid(image_rgb: np.ndarray, patch_size: int = 2) -> dict:
     pw = W // patch_size   # patch width in pixels
 
     patches = []
-    annotated = image_rgb.copy()
+    boxes, labels = [], []
 
     for row in range(patch_size):
         row_patches = []
@@ -446,15 +446,11 @@ def create_patch_grid(image_rgb: np.ndarray, patch_size: int = 2) -> dict:
             patch = image_rgb[y0:y1, x0:x1].astype(np.float32) / 255.0
             row_patches.append(patch.tolist())
 
-            # Draw grid lines on annotated image
-            cv2.rectangle(annotated, (x0, y0), (x1 - 1, y1 - 1), (0, 255, 100), 2)
-            cv2.putText(
-                annotated, f"{row},{col}",
-                (x0 + 4, y0 + 20), cv2.FONT_HERSHEY_SIMPLEX,
-                0.5, (255, 255, 0), 1, cv2.LINE_AA,
-            )
+            boxes.append((x0, y0, x1 - 1, y1 - 1))
+            labels.append(f"{row},{col}")
         patches.append(row_patches)
 
+    annotated = annotate_patch_grid(image_rgb, boxes, labels)
     grid_b64 = image_to_base64(annotated)
 
     return {

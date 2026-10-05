@@ -9,23 +9,26 @@ import time
 from typing import Optional
 
 import numpy as np
-from qiskit import QuantumCircuit, transpile
-from qiskit.circuit.library import ZZFeatureMap, RealAmplitudes
+
+# quantum_backend resolves to real Qiskit + Aer when installed, and to the
+# pure-NumPy `qlite` backend on size-constrained deployments (Vercel).
+from quantum_backend import (
+    AerSimulator,
+    NoiseModel,
+    QuantumCircuit,
+    RealAmplitudes,
+    ReadoutError,
+    SIMULATOR_AVAILABLE,
+    ZZFeatureMap,
+    depolarizing_error,
+    thermal_relaxation_error,
+    transpile,
+)
 
 logger = logging.getLogger(__name__)
 
-# ── Optional Aer imports ───────────────────────────────────────────────────────
-try:
-    from qiskit_aer import AerSimulator
-    from qiskit_aer.noise import (
-        NoiseModel,
-        thermal_relaxation_error,
-        depolarizing_error,
-    )
-    _AER_AVAILABLE = True
-except ImportError:
-    _AER_AVAILABLE = False
-    logger.warning("qiskit-aer not found; noise simulation will return mock values.")
+# A noise-capable simulator is always reachable (Aer locally, qlite otherwise).
+_AER_AVAILABLE = SIMULATOR_AVAILABLE
 
 # ── Optional mitiq ZNE ────────────────────────────────────────────────────────
 try:
@@ -34,7 +37,7 @@ try:
     _MITIQ_AVAILABLE = True
 except ImportError:
     _MITIQ_AVAILABLE = False
-    logger.warning("mitiq not found; ZNE will use linear extrapolation fallback.")
+    logger.info("mitiq not installed; ZNE uses the built-in Richardson extrapolation.")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -125,7 +128,6 @@ def build_noise_model(
     # Measurement (readout) errors
     try:
         p_meas = min(depolarizing_rate * 2, 0.1)  # ~2× gate error rate
-        from qiskit_aer.noise import ReadoutError
         read_err = ReadoutError([[1 - p_meas, p_meas], [p_meas, 1 - p_meas]])
         noise_model.add_all_qubit_readout_error(read_err)
     except Exception as exc:

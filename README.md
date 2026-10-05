@@ -85,8 +85,23 @@ From the repository root:
 cd backend
 python3.12 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\\Scripts\\activate
-pip install -r requirements.txt
+pip install -r requirements-full.txt   # full Qiskit + PyTorch research stack
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Dependency profiles
+
+| File | Installs | Used by |
+|------|----------|---------|
+| `backend/requirements.txt` | FastAPI, NumPy, Pillow, Jinja2, ReportLab (~122 MB) | Vercel Function (**must stay under 225 MB**) |
+| `backend/requirements-full.txt` | the above **plus** Qiskit 1.x, Aer, qiskit-machine-learning, Mitiq, PyTorch, torchvision, scikit-learn, SciPy, OpenCV, Matplotlib, pydicom, WeasyPrint (~5.9 GB) | local development, research runs, self-hosted deployments |
+
+The backend detects which profile is installed and adapts automatically — see
+[Runtime backends](#runtime-backends). Every API route works in both profiles;
+`GET /api/health` reports which one is live:
+
+```json
+{ "runtime": { "backend": "qiskit+aer", "qiskit": true, "qiskit_aer": true } }
 ```
 
 Local API: `http://localhost:8000/api/health`
@@ -128,7 +143,45 @@ Top-level rewrites send `/api/*` to FastAPI and all remaining traffic to Vite. T
 
 In Vercel, import this repository as one project, leave **Root Directory** at the repository root, and select **Services** as the framework if it is not inferred. Service commands and output paths come from `vercel.json`; do not override them in the dashboard.
 
-> **Backend bundle requirement:** PyTorch, torchvision, Qiskit, Aer, and the imaging stack exceed the standard 500 MB Python function bundle in typical installs. Enable Vercel **Large Functions** with Fluid Compute and Active CPU for this project. The backend is also subject to Vercel's 4.5 MB request/response payload limit and ephemeral `/tmp` storage. The configured maximum duration is 300 seconds.
+> **Backend bundle requirement:** Vercel caps a Python Function at **225 MB
+> unzipped**. The deployed function therefore installs `backend/requirements.txt`
+> only (~122 MB). The heavy research stack lives in `requirements-full.txt` and
+> is deliberately *not* installed on Vercel — `torch` alone drags in
+> `nvidia-cudnn`, `nvidia-cublas`, `nvidia-nccl`, `nvidia-cusparse(-lt)` and
+> `triton`, pushing the bundle to ~5.9 GB.
+>
+> `vercel.json` intentionally declares **no custom `installCommand`** for either
+> service. A custom install command disables Vercel's automatic function bundle
+> optimisation; letting Vercel detect `requirements.txt` and `package-lock.json`
+> keeps that optimisation (and the dependency cache) enabled.
+>
+> The backend is also subject to Vercel's 4.5 MB request/response payload limit
+> and ephemeral `/tmp` storage. The configured maximum duration is 300 seconds.
+
+---
+
+## Runtime backends
+
+Every heavy dependency is optional and resolved through a thin compatibility
+layer, so the same source tree runs in both profiles:
+
+| Module | Full profile (local) | Serverless profile (Vercel) |
+|--------|----------------------|------------------------------|
+| `quantum_backend.py` | Qiskit 1.x circuits + Aer simulator + `FidelityQuantumKernel` | `qlite.py` — pure-NumPy circuits, exact statevector simulator (≤16 qubits), stochastic-Pauli noise model, OpenQASM 3 export, Pillow circuit diagrams |
+| `ml_compat.py` | scikit-learn metrics / `SVC` / `train_test_split`; PyTorch CNN baseline | NumPy metrics (ROC, AUC, F1, confusion matrix), kernel-logistic `SVC`, NumPy MLP baseline |
+| `imaging_compat.py` | OpenCV decode/resize/annotate, Matplotlib heatmaps, torchvision ResNet18 features | Pillow decode/resize/annotate, Pillow heatmaps, deterministic hand-crafted 512-d descriptor |
+| `report_generator.py` | WeasyPrint PDF | ReportLab PDF (already the existing fallback) |
+| `noise_mitigation.py` | Aer noise model + Mitiq ZNE | `qlite` noise model + built-in Richardson extrapolation |
+
+Nothing heavy is imported at FastAPI start-up: `app.py` imports only
+`fastapi`, `pydantic`, `numpy` and `config` at module level, and every route
+imports its pipeline lazily on first call.
+
+Smoke-test all nine routes against whichever profile is installed:
+
+```bash
+cd backend && python tests/test_api_routes.py
+```
 
 ---
 

@@ -4,7 +4,6 @@
     "app": {
       "root": ".",
       "framework": "vite",
-      "installCommand": "npm ci",
       "buildCommand": "npm run build",
       "outputDirectory": "dist",
       "devCommand": "npm run dev",
@@ -19,7 +18,6 @@
       "root": "backend/",
       "framework": "fastapi",
       "entrypoint": "app:app",
-      "installCommand": "pip install -r requirements.txt",
       "devCommand": "uvicorn app:app --host 0.0.0.0 --port 8000",
       "functions": {
         "app.py": {
