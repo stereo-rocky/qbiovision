@@ -1,4 +1,4 @@
-﻿
+
 """
 quantum_models.py -- Quantum Machine Learning Models for Q-BioVision
 Implements QCNN (QuanvolutionalNN), QSVC (QuantumSVClassifier), and
