@@ -5,22 +5,17 @@ benchmarking, and clinical report generation.
 """
 
 import base64
-import io
 import logging
-import os
 import time
 from typing import Optional
 
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from config import (
     API_VERSION,
-    CORS_ORIGINS,
     DEFAULT_N_QUBITS,
     DEMO_MODE,
     DATASET_CONFIGS,
@@ -48,16 +43,9 @@ app = FastAPI(
         "Qiskit Fall Fest 2026 — Global Healthcare Track."
     ),
     version=API_VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -116,7 +104,8 @@ def _clamp_qubits(n: int) -> int:
 # Routes
 # ──────────────────────────────────────────────────────────────────────────────
 
-@app.get("/", tags=["Health"])
+@app.get("/", include_in_schema=False)
+@app.get("/api/health", tags=["Health"])
 async def health_check():
     """API health check. Returns version and runtime mode."""
     return {
@@ -124,7 +113,7 @@ async def health_check():
         "service": "Q-BioVision API",
         "version": API_VERSION,
         "demo_mode": DEMO_MODE,
-        "docs": "/docs",
+        "docs": "/api/docs",
     }
 
 

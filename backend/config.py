@@ -5,6 +5,8 @@ Sets random seeds, model registry, dataset metadata, and all shared constants.
 
 import os
 import random
+import shutil
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +14,11 @@ import numpy as np
 # ──────────────────────────────────────────────────────────────────────────────
 # Reproducibility Seeds
 # ──────────────────────────────────────────────────────────────────────────────
-RANDOM_SEED: int = 42
+try:
+    RANDOM_SEED: int = int(os.environ.get("RANDOM_SEED", "42"))
+except ValueError as exc:
+    raise ValueError("RANDOM_SEED must be an integer") from exc
+
 np.random.seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
@@ -72,14 +78,6 @@ IMAGE_SIZE: int = 224          # Resize target for all input images (pixels)
 PATCH_SIZE: int = 2            # Patch grid dimension (2x2 = 4 patches)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# API / CORS
-# ──────────────────────────────────────────────────────────────────────────────
-CORS_ORIGINS: list = [
-    "http://localhost:5173",   # Vite dev server (React / Vue)
-    "http://localhost:3000",   # CRA / Next.js dev server
-]
-
-# ──────────────────────────────────────────────────────────────────────────────
 # Feature Extraction
 # ──────────────────────────────────────────────────────────────────────────────
 FEATURE_DIM: int = 512         # ResNet18 penultimate (avgpool) output dimension
@@ -95,11 +93,24 @@ DEFAULT_ENTANGLER: str = "cx"
 # ──────────────────────────────────────────────────────────────────────────────
 # File-system Directories
 # ──────────────────────────────────────────────────────────────────────────────
-CACHE_DIR: Path = Path("./cache")
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+BACKEND_DIR: Path = Path(__file__).resolve().parent
+BUNDLED_CACHE_DIR: Path = BACKEND_DIR / "cache"
 
-DEMO_DATA_DIR: Path = Path("./demo_data")
-DEMO_DATA_DIR.mkdir(parents=True, exist_ok=True)
+# Vercel's deployed filesystem is read-only except for /tmp. Seed its ephemeral
+# cache with bundled demo results so demo mode remains fast on cold starts.
+if os.environ.get("VERCEL"):
+    CACHE_DIR: Path = Path(tempfile.gettempdir()) / "qbiovision-cache"
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    if BUNDLED_CACHE_DIR.exists():
+        for bundled_file in BUNDLED_CACHE_DIR.iterdir():
+            target = CACHE_DIR / bundled_file.name
+            if bundled_file.is_file() and not target.exists():
+                shutil.copy2(bundled_file, target)
+else:
+    CACHE_DIR = BUNDLED_CACHE_DIR
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+DEMO_DATA_DIR: Path = BACKEND_DIR / "demo_data"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Model Registry

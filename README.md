@@ -79,43 +79,56 @@ Data re-uploading layers (Ry(xi), Rz(xi)) alternated with CX entangler ladders, 
 
 ### Backend Setup
 
+From the repository root:
+
 ```bash
-cd QFF/backend
-
-# Create virtual environment
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-
-# Install dependencies
+cd backend
+python3.12 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\\Scripts\\activate
 pip install -r requirements.txt
-
-# Generate demo images
-python create_demo_data.py
-
-# Start API server
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-API: http://localhost:8000
-Swagger UI: http://localhost:8000/docs
+Local API: `http://localhost:8000/api/health`
+
+Local Swagger UI: `http://localhost:8000/api/docs`
+
+The three demo images are committed under `backend/demo_data`; regenerate them only when needed with `python create_demo_data.py`.
 
 ### Frontend Setup
 
+In a second terminal, from the repository root:
+
 ```bash
-cd QFF/frontend
-npm install
+npm ci
 npm run dev
 ```
 
-App: http://localhost:5173
+App: http://localhost:5173. Vite proxies same-origin `/api/*` calls to the local backend.
 
-### Environment Variables (backend/.env)
+### Environment Variables
+
+The backend has safe defaults and requires no secrets:
 
 ```env
-DEMO_MODE=true        # Use cached results for instant demo
-RANDOM_SEED=42
-# IBMQ_API_TOKEN=     # Optional: real IBM hardware
+DEMO_MODE=true        # Optional runtime setting; use cached/demo workflows
+RANDOM_SEED=42        # Optional runtime integer; reproducible simulations
 ```
+
+No frontend environment variables are required. Do not expose backend secrets through `VITE_*` variables.
+
+### Vercel deployment (Services)
+
+This repository's `vercel.json` defines two services:
+
+- `app`: Vite service rooted at the repository root, built with `npm ci && npm run build` to `dist`.
+- `backend`: FastAPI service rooted at `backend/`, entered through `app:app` on Python 3.12.
+
+Top-level rewrites send `/api/*` to FastAPI and all remaining traffic to Vite. The app service's fallback rewrite serves `index.html` for SPA routes. Browser calls stay same-origin, so no service binding or production CORS exception is needed.
+
+In Vercel, import this repository as one project, leave **Root Directory** at the repository root, and select **Services** as the framework if it is not inferred. Service commands and output paths come from `vercel.json`; do not override them in the dashboard.
+
+> **Backend bundle requirement:** PyTorch, torchvision, Qiskit, Aer, and the imaging stack exceed the standard 500 MB Python function bundle in typical installs. Enable Vercel **Large Functions** with Fluid Compute and Active CPU for this project. The backend is also subject to Vercel's 4.5 MB request/response payload limit and ephemeral `/tmp` storage. The configured maximum duration is 300 seconds.
 
 ---
 
