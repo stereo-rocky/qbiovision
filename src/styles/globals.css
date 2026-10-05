@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================================================================
+   Q-BioVision Global Styles — Dark Quantum Theme
+   ================================================================ */
+
+/* Base body styles */
+body {
+  background: #0f172a;
+  color: #e2e8f0;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Quantum glow effect — applied to cards/panels with quantum accent */
+.quantum-glow {
+  box-shadow: 0 0 20px rgba(14, 165, 233, 0.3);
+}
+
+.quantum-glow-lg {
+  box-shadow: 0 0 40px rgba(14, 165, 233, 0.4);
+}
+
+.quantum-glow-purple {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+}
+
+/* Quantum border — subtle blue glowing border */
+.quantum-border {
+  border: 1px solid rgba(14, 165, 233, 0.4);
+}
+
+.quantum-border-purple {
+  border: 1px solid rgba(139, 92, 246, 0.4);
+}
+
+/* Scrollbar styling for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #0ea5e9;
+}
+
+/* Range slider custom styling */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #334155;
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0ea5e9;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(14, 165, 233, 0.5);
+  transition: box-shadow 0.2s ease;
+}
+
+input[type='range']::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 14px rgba(14, 165, 233, 0.8);
+}
+
+input[type='range'].purple-thumb::-webkit-slider-thumb {
+  background: #8b5cf6;
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.5);
+}
+
+/* Fade-in animation used throughout */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+/* Quantum pulse for loading indicators */
+@keyframes quantumPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.quantum-pulse {
+  animation: quantumPulse 1.5s ease-in-out infinite;
+}
+
+/* Code block styling */
+.qasm-code {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}

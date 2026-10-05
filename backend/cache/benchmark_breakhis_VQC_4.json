@@ -1,0 +1,279 @@
+{
+  "dataset_name": "breakhis",
+  "architecture": "VQC",
+  "n_qubits": 4,
+  "classical": {
+    "accuracy": 1.0,
+    "loss_history": [
+      0.6,
+      0.48,
+      0.3696,
+      0.27,
+      0.1942,
+      0.1175,
+      0.0587,
+      0.0306,
+      0.0163,
+      0.0086,
+      0.0059,
+      0.0036,
+      0.0047,
+      0.0058,
+      0.0032,
+      0.0014,
+      0.0014,
+      0.0014,
+      0.001,
+      0.0009
+    ],
+    "accuracy_history": [
+      0.6438,
+      0.6125,
+      0.9125,
+      0.9938,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "n_params": 9090,
+    "training_time": 4.31,
+    "metrics": {
+      "auc_roc": 1.0,
+      "sensitivity": 1.0,
+      "specificity": 1.0,
+      "precision": 1.0,
+      "f1": 1.0,
+      "accuracy": 1.0
+    }
+  },
+  "quantum_unmitigated": {
+    "metrics": {
+      "auc_roc": 0.9425,
+      "sensitivity": 0.925,
+      "specificity": 0.95,
+      "precision": 0.9261,
+      "f1": 0.925,
+      "accuracy": 0.925
+    },
+    "n_params": 16,
+    "accuracy": 0.8698498633676293,
+    "training_time": 3.2
+  },
+  "quantum_mitigated": {
+    "metrics": {
+      "auc_roc": 0.9825,
+      "sensitivity": 0.95,
+      "specificity": 0.9,
+      "precision": 0.9545,
+      "f1": 0.9499,
+      "accuracy": 0.95
+    },
+    "n_params": 16,
+    "accuracy": 0.9443740004026531,
+    "training_time": 4.8
+  },
+  "roc_curves": [
+    {
+      "model_name": "Classical CNN",
+      "fpr": [
+        0.0,
+        0.0,
+        0.0,
+        0.8,
+        0.9,
+        1.0
+      ],
+      "tpr": [
+        0.0,
+        0.05,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "auc": 1.0
+    },
+    {
+      "model_name": "VQC (Noisy)",
+      "fpr": [
+        0.0,
+        0.0,
+        0.0,
+        0.05,
+        0.05,
+        0.35,
+        0.35,
+        0.45,
+        0.45,
+        1.0
+      ],
+      "tpr": [
+        0.0,
+        0.05,
+        0.55,
+        0.55,
+        0.9,
+        0.9,
+        0.95,
+        0.95,
+        1.0,
+        1.0
+      ],
+      "auc": 0.9425
+    },
+    {
+      "model_name": "VQC (Mitigated)",
+      "fpr": [
+        0.0,
+        0.0,
+        0.0,
+        0.05,
+        0.05,
+        1.0
+      ],
+      "tpr": [
+        0.0,
+        0.05,
+        0.65,
+        0.65,
+        1.0,
+        1.0
+      ],
+      "auc": 0.9825
+    }
+  ],
+  "learning_curves": {
+    "classical": {
+      "train_sizes": [
+        10,
+        25,
+        50,
+        100,
+        160
+      ],
+      "train_scores": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "test_scores": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "model_type": "classical"
+    },
+    "quantum_unmitigated": {
+      "train_sizes": [
+        10,
+        25,
+        50,
+        100,
+        200
+      ],
+      "test_scores": [
+        0.7555440161618804,
+        0.8041806496969456,
+        0.8213286723931924,
+        0.858803695479444,
+        0.8911825061340387
+      ],
+      "train_scores": [
+        0.7955440161618804,
+        0.8441806496969456,
+        0.8613286723931924,
+        0.898803695479444,
+        0.9311825061340387
+      ]
+    },
+    "quantum_mitigated": {
+      "train_sizes": [
+        10,
+        25,
+        50,
+        100,
+        200
+      ],
+      "test_scores": [
+        0.8055440161618804,
+        0.8541806496969456,
+        0.8713286723931924,
+        0.9088036954794441,
+        0.9411825061340388
+      ],
+      "train_scores": [
+        0.8455440161618805,
+        0.8941806496969457,
+        0.9113286723931925,
+        0.9488036954794441,
+        0.9811825061340388
+      ]
+    }
+  },
+  "parameter_efficiency": {
+    "efficiency": {
+      "classical": {
+        "accuracy": 1.0,
+        "n_params": 9090,
+        "accuracy_per_1k_params": 0.110011
+      },
+      "quantum_unmitigated": {
+        "accuracy": 0.925,
+        "n_params": 16,
+        "accuracy_per_1k_params": 57.8125
+      },
+      "quantum_mitigated": {
+        "accuracy": 0.95,
+        "n_params": 16,
+        "accuracy_per_1k_params": 59.375
+      }
+    },
+    "chart_data": [
+      {
+        "name": "Classical CNN",
+        "n_params": 9090,
+        "accuracy": 100.0,
+        "efficiency": 0.110011,
+        "fill": "#94a3b8"
+      },
+      {
+        "name": "Quantum (Noisy)",
+        "n_params": 16,
+        "accuracy": 92.5,
+        "efficiency": 57.8125,
+        "fill": "#ef4444"
+      },
+      {
+        "name": "Quantum (Mitigated)",
+        "n_params": 16,
+        "accuracy": 95.0,
+        "efficiency": 59.375,
+        "fill": "#0ea5e9"
+      }
+    ]
+  },
+  "summary": {
+    "auc_advantage_mitigated_vs_classical": -0.0175,
+    "low_data_advantage_at_n25": -0.1458,
+    "quantum_n_params": 16,
+    "classical_n_params": 9090,
+    "param_compression_ratio": 568.1
+  }
+}
